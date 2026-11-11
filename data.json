@@ -1,6 +1,16 @@
 {
   "intake_log": [],
-  "last_update_id": 811970752,
-  "reminders": [],
+  "last_update_id": 811970753,
+  "reminders": [
+    {
+      "chat_id": 1221862634,
+      "emoji": "💊",
+      "every_hours": 8,
+      "id": 1,
+      "last_taken_at": "2026-11-11T01:00:00+03:30",
+      "name": "آموکسی",
+      "time": "01:00"
+    }
+  ],
   "sent_log": {}
 }
