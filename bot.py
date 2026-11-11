@@ -1480,23 +1480,44 @@ def deliver_plans(token: str, data: dict, plans: list[dict], now: datetime) -> d
     return counts
 
 
+def git_run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=ROOT, check=False, timeout=20, text=True)
+
+
 def publish_data() -> None:
-    subprocess.run(["git", "add", "data.json"], cwd=ROOT, check=False)
-    quiet = subprocess.run(["git", "diff", "--cached", "--quiet", "data.json"], cwd=ROOT)
-    if quiet.returncode == 0:
-        return
-    committed = subprocess.run(
-        ["git", "commit", "-m", "Update reminder data"],
-        cwd=ROOT,
-        check=False,
-    )
-    if committed.returncode != 0:
-        return
-    subprocess.run(["git", "pull", "--rebase", "--autostash"], cwd=ROOT, check=False)
-    subprocess.run(["git", "push"], cwd=ROOT, check=False)
+    try:
+        git_run(["git", "add", "data.json"])
+        quiet = git_run(["git", "diff", "--cached", "--quiet", "data.json"])
+        if quiet.returncode == 0:
+            return
+        committed = git_run(["git", "commit", "-m", "Update reminder data"])
+        if committed.returncode != 0:
+            return
+        git_run(["git", "pull", "--rebase", "--autostash"])
+        git_run(["git", "push"])
+    except subprocess.TimeoutExpired:
+        print("saving data timed out")
 
 
-def run_once(token: str, poll_timeout: int = 0, publish: bool = False) -> int:
+def load_token() -> str:
+    token = os.environ.get("BOT_TOKEN", "").strip()
+    if token:
+        return token
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return ""
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        if line.startswith("BOT_TOKEN="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def run_once(
+    token: str,
+    poll_timeout: int = 0,
+    publish: bool = False,
+    prepare: bool = True,
+) -> int:
     data = load_data(DATA_PATH)
     original = dump_data(data)
     now = datetime.now(TZ)
@@ -1505,7 +1526,8 @@ def run_once(token: str, poll_timeout: int = 0, publish: bool = False) -> int:
     counts = {"initial": 0, "followup": 0, "snooze": 0}
     handled = 0
     try:
-        prepare_bot(token)
+        if prepare:
+            prepare_bot(token)
         handled, update_error = process_updates(token, data, now, poll_timeout)
         plans = collect_due(data, now)
         counts = deliver_plans(token, data, plans, now)
@@ -1544,7 +1566,7 @@ def run_once(token: str, poll_timeout: int = 0, publish: bool = False) -> int:
 
 
 def main() -> None:
-    token = os.environ.get("BOT_TOKEN", "").strip()
+    token = load_token()
     if not token:
         print(
             "BOT_TOKEN is not set. Add it as a GitHub Actions secret named BOT_TOKEN.",
@@ -1552,10 +1574,13 @@ def main() -> None:
         )
         sys.exit(1)
     if "--watch" in sys.argv:
-        print("watching")
-        while True:
+        limit = int(os.environ.get("WATCH_SECONDS", "0") or "0")
+        deadline = time.time() + limit if limit else None
+        print("watching", flush=True)
+        prepare_bot(token)
+        while deadline is None or time.time() < deadline:
             try:
-                run_once(token, poll_timeout=20, publish=True)
+                run_once(token, poll_timeout=50, publish=True, prepare=False)
             except FatalTokenError:
                 print(
                     "BOT_TOKEN was rejected by Telegram.",
@@ -1568,6 +1593,7 @@ def main() -> None:
                     text = exc.__class__.__name__
                 print(text, file=sys.stderr)
                 time.sleep(3)
+        print("watch shift ended", flush=True)
         return
     sys.exit(run_once(token))
 

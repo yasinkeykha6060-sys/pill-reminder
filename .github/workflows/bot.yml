@@ -2,12 +2,13 @@ name: Pill reminder
 
 on:
   schedule:
-    # هر ۵ دقیقه. این زمان UTC است و فاصله‌اش در تهران هم همان ۵ دقیقه می‌ماند.
-    - cron: "*/5 * * * *"
+    # اگر زنجیرهٔ اجرا قطع شد، این یکی دوباره ربات را روشن می‌کند.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: pill-reminder
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,11 +31,15 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Run the bot
+      - name: Keep the bot online
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           PYTHONUNBUFFERED: "1"
-        run: python bot.py
+          WATCH_SECONDS: "17400"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python bot.py --watch
 
       - name: Save data.json
         if: always()
@@ -48,3 +53,9 @@ jobs:
             git commit -m "Update reminder data"
             git push
           fi
+
+      - name: Hand off to the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run bot.yml --ref main
