@@ -69,7 +69,7 @@ DEFAULT_SYMBOL = ("💊", "یعنی یک یادآور دارو است")
 
 INITIAL_LINES = [
     "نیایشم، زودتر خوب شو. یاسین خیلی خیلی دوستت داره.",
-    "نیایش جونم، این یکی را بخور. یاسین کنارت است و هوات را دارد.",
+    "نیایش جانم، این یکی را بخور. یاسین کنارت است و هوات را دارد.",
     "یک قدم کوچک تا حالِ بهتر. یاسین خیلی خیلی دوستت داره.",
     "نیایش عزیزم، سلامتی‌ات برای یاسین از همه‌چیز مهم‌تر است.",
     "خوب شدن تو، آرامِ دل یاسین است.",
@@ -81,7 +81,7 @@ FOLLOWUP_LINES = [
 ]
 SNOOZE_LINES = [
     "نیایشم، همان ده دقیقه تمام شد. یاسین هنوز اینجاست کنارت.",
-    "برگشتم نیایش جون. حالا وقتش است. یاسین خیلی خیلی دوستت داره.",
+    "برگشتم نیایش جانم. حالا وقتش است. یاسین خیلی خیلی دوستت داره.",
 ]
 TAKEN_LINES = [
     "نیایشم، زودتر خوب شو. یاسین خیلی خیلی دوستت داره.",
@@ -362,9 +362,9 @@ def keyboard(reminder_id: int, day: date) -> dict:
 
 def reminder_message(reminder: dict, kind: str, now: datetime, followup_no: int = 1) -> str:
     title = {
-        "initial": "⏰ وقت دارو شد نیایش جون",
-        "followup": "🔔 نیایش جون، هنوز این دارو مانده",
-        "snooze": "⏰ نیایش جون، ده دقیقه‌ات تمام شد",
+        "initial": "⏰ وقت دارو شد نیایش جانم",
+        "followup": "🔔 نیایش جانم، هنوز این دارو مانده",
+        "snooze": "⏰ نیایش جانم، ده دقیقه‌ات تمام شد",
     }[kind]
     if kind == "initial":
         love = pick_line(INITIAL_LINES, reminder["id"], now.date().isoformat(), kind)
@@ -412,7 +412,7 @@ def help_text() -> str:
         "💊 بقیهٔ داروها",
     ]
     lines = [
-        "سلام نیایش جون 💛",
+        "سلام نیایش جانم 💛",
         "من اینجام که وقت دارو یادت نرود. یاسین خیلی خیلی دوستت داره و می‌خواهد زودتر خوب شوی.",
         "",
         "هر یادآور، هر روز سر همان ساعت تکرار می‌شود.",
@@ -444,7 +444,7 @@ def help_text() -> str:
 
 def usage_text() -> str:
     return (
-        "این را درست نفهمیدم نیایش جون.\n"
+        "این را درست نفهمیدم نیایش جانم.\n"
         "یکی از این‌ها را بفرست:\n"
         "/add 08:00 قرص صبح\n"
         "/list\n"
@@ -515,7 +515,7 @@ def handle_message(data: dict, chat_id: int, text: str, now: datetime) -> dict:
         if folded in GREETINGS or folded.startswith("سلام"):
             return {
                 "text": (
-                    "سلام نیایش جون 💛\n"
+                    "سلام نیایش جانم 💛\n"
                     "یاسین خیلی خیلی دوستت داره و می‌خواهد زودتر خوب شوی.\n"
                     "برای راهنما /start را بزن."
                 )
@@ -535,7 +535,7 @@ def handle_message(data: dict, chat_id: int, text: str, now: datetime) -> dict:
     if command == "test":
         return {
             "text": (
-                "🔔 این یک زنگ آزمایشی است نیایش جون\n\n"
+                "🔔 این یک زنگ آزمایشی است نیایش جانم\n\n"
                 "اگر صدای گوشی را شنیدی، اعلان‌ها درست است.\n"
                 "نیایشم، زودتر خوب شو. یاسین خیلی خیلی دوستت داره.\n\n"
                 "دکمه‌ها را هم می‌توانی امتحان کنی. این آزمایش در فهرست داروها ثبت نمی‌شود."
@@ -550,7 +550,7 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     if match is None:
         return {
             "text": (
-                "نیایش جون، این را این‌جوری بنویس:\n"
+                "نیایش جانم، این را این‌جوری بنویس:\n"
                 "/add 08:00 قرص صبح\n\n"
                 "اول ساعت با دونقطه، بعد یک اسم کوتاه. عدد فارسی هم قبول است."
             )
@@ -559,7 +559,7 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     if hhmm is None:
         return {
             "text": (
-                "این ساعت درست نیست نیایش جون.\n"
+                "این ساعت درست نیست نیایش جانم.\n"
                 "ساعت را از ۰۰:۰۰ تا ۲۳:۵۹ بنویس. مثلاً:\n"
                 "/add 08:00 قرص صبح"
             )
@@ -568,7 +568,7 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     if TOKEN_LIKE_RE.search(raw_name):
         return {
             "text": (
-                "این نوشته را ذخیره نمی‌کنم نیایش جون.\n"
+                "این نوشته را ذخیره نمی‌کنم نیایش جانم.\n"
                 "فقط ساعت و یک اسم کوتاه بفرست. مثلاً:\n"
                 "/add 08:00 قرص صبح"
             )
@@ -577,7 +577,7 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     if name is None:
         return {
             "text": (
-                "یک اسم کوتاه برای دارو بگذار نیایش جون. مثلاً «قرص صبح».\n"
+                "یک اسم کوتاه برای دارو بگذار نیایش جانم. مثلاً «قرص صبح».\n"
                 "اسم خیلی طولانی را ذخیره نمی‌کنم."
             )
         }
@@ -586,14 +586,14 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
         if reminder["time"] == hhmm and norm_text(reminder["name"]) == norm_text(name):
             return {
                 "text": (
-                    f"این را قبلاً داری نیایش جون.\n"
+                    f"این را قبلاً داری نیایش جانم.\n"
                     f"{reminder['emoji']} {html_escape(name)} هر روز ساعت {fa_clock(hhmm)}."
                 )
             }
     if len(owned) >= MAX_REMINDERS:
         return {
             "text": (
-                "به سقف یادآورها رسیدیم نیایش جون.\n"
+                "به سقف یادآورها رسیدیم نیایش جانم.\n"
                 "یکی را با /del بردار، بعد این را دوباره اضافه کن."
             )
         }
@@ -609,7 +609,7 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     )
     return {
         "text": (
-            "ثبت شد نیایش جون ✅\n\n"
+            "ثبت شد نیایش جانم ✅\n\n"
             f"{emoji} {html_escape(name)}\n"
             f"{note}.\n"
             f"{schedule_sentence(now, hhmm)}\n\n"
@@ -622,12 +622,12 @@ def list_text(data: dict, chat_id: int) -> str:
     items = chat_reminders(data, chat_id)
     if not items:
         return (
-            "هنوز یادآوری نداری نیایش جون.\n"
+            "هنوز یادآوری نداری نیایش جانم.\n"
             "این‌جوری یکی بساز:\n"
             "/add 08:00 قرص صبح\n\n"
             "ساعت را هر روز همان موقع می‌گویم."
         )
-    lines = ["یادآورهای هر روزت، نیایش جون 💛", ""]
+    lines = ["یادآورهای هر روزت، نیایش جانم 💛", ""]
     for index, reminder in enumerate(items, start=1):
         lines.append(
             f"{fa_digits(index)}. {reminder['emoji']} {html_escape(reminder['name'])}"
@@ -642,7 +642,7 @@ def delete_reminder(data: dict, chat_id: int, rest: str) -> dict:
     items = chat_reminders(data, chat_id)
     if match is None or not items:
         if not items:
-            return {"text": "چیزی برای حذف نیست نیایش جون. با /add یکی بساز."}
+            return {"text": "چیزی برای حذف نیست نیایش جانم. با /add یکی بساز."}
         return {
             "text": (
                 "شماره را درست ننوشته‌ای عزیزم.\n"
@@ -653,7 +653,7 @@ def delete_reminder(data: dict, chat_id: int, rest: str) -> dict:
     if index < 1 or index > len(items):
         return {
             "text": (
-                "این شماره در فهرست تو نیست نیایش جون.\n"
+                "این شماره در فهرست تو نیست نیایش جانم.\n"
                 "/list را بزن تا شماره‌ها را ببینی."
             )
         }
@@ -686,7 +686,7 @@ def history_text(data: dict, chat_id: int, today: date) -> str:
             rows.append(item)
     if not rows:
         return (
-            "در ۷ روز اخیر هنوز «خوردم» ثبت نشده نیایش جون.\n"
+            "در ۷ روز اخیر هنوز «خوردم» ثبت نشده نیایش جانم.\n"
             "هر وقت خوردی همان دکمه را بزن تا اینجا بماند.\n"
             "یاسین خیلی خیلی دوستت داره."
         )
@@ -837,7 +837,7 @@ def handle_callback(token: str, data: dict, callback: dict, now: datetime) -> No
     message_id = message.get("message_id")
     parsed = parse_callback(str(callback.get("data") or ""))
     if parsed is None:
-        answer_callback(token, callback_id, "این دکمه قدیمی است نیایش جون.")
+        answer_callback(token, callback_id, "این دکمه قدیمی است نیایش جانم.")
         return
     kind, reminder_id, day = parsed
     if reminder_id == 0:
@@ -851,7 +851,7 @@ def handle_callback(token: str, data: dict, callback: dict, now: datetime) -> No
             token,
             chat_id,
             message_id,
-            "این یادآور حذف شده نیایش جون.\nاگر هنوز می‌خواهی، دوباره با /add اضافه‌اش کن.",
+            "این یادآور حذف شده نیایش جانم.\nاگر هنوز می‌خواهی، دوباره با /add اضافه‌اش کن.",
         )
         return
 
@@ -869,7 +869,7 @@ def handle_test_callback(
     kind: str,
 ) -> None:
     if kind == "t":
-        answer_callback(token, callback_id, "رسید به گوشی، نیایش جون")
+        answer_callback(token, callback_id, "رسید به گوشی، نیایش جانم")
         edit_message(
             token,
             chat_id,
@@ -883,7 +883,7 @@ def handle_test_callback(
         token,
         chat_id,
         message_id,
-        "زنگ آزمایشی بود نیایش جون.\nیادآور واقعی را با /add می‌سازی و همان‌جا ده دقیقه بعد هم کار می‌کند.",
+        "زنگ آزمایشی بود نیایش جانم.\nیادآور واقعی را با /add می‌سازی و همان‌جا ده دقیقه بعد هم کار می‌کند.",
     )
 
 
@@ -933,7 +933,7 @@ def record_taken(
     callback_id: str,
 ) -> None:
     first_time = acknowledge(data, reminder, day, now, chat_id)
-    toast = "آفرین نیایش جون، ثبت شد" if first_time else "این یکی را قبلاً ثبت کرده بودم عزیزم"
+    toast = "آفرین نیایش جانم، ثبت شد" if first_time else "این یکی را قبلاً ثبت کرده بودم عزیزم"
     love = pick_line(TAKEN_LINES, reminder["id"], day.isoformat())
     edit_message(
         token,
@@ -958,7 +958,7 @@ def record_snooze(
 ) -> None:
     state = postpone(data, reminder, day, now)
     if state == "acked":
-        answer_callback(token, callback_id, "قبلاً خوردی و ثبت شده نیایش جون")
+        answer_callback(token, callback_id, "قبلاً خوردی و ثبت شده نیایش جانم")
         return
     if state == "capped":
         answer_callback(token, callback_id, "بیشتر از این نمی‌توانم عقب بیندازم عزیزم")
@@ -966,7 +966,7 @@ def record_snooze(
             token,
             chat_id,
             message_id,
-            "نیایش جون، این نوبت را بیشتر از این عقب نمی‌اندازم.\n"
+            "نیایش جانم، این نوبت را بیشتر از این عقب نمی‌اندازم.\n"
             "اگر خوردی دکمهٔ «خوردم» را بزن. یاسین کنارت است.",
         )
         return
@@ -1132,7 +1132,7 @@ def deliver_message(token: str, data: dict, message: dict, now: datetime) -> Non
         send_html(
             token,
             chat["id"],
-            "فقط نوشته را می‌فهمم نیایش جون. مثلاً بنویس:\n/add 08:00 قرص صبح",
+            "فقط نوشته را می‌فهمم نیایش جانم. مثلاً بنویس:\n/add 08:00 قرص صبح",
         )
         return
     reply = handle_message(data, chat["id"], text, now)
