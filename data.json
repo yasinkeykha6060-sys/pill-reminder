@@ -15,9 +15,9 @@
   "sent_log": {
     "1:2026-11-12T01:00": {
       "acked": false,
-      "followups": 0,
+      "followups": 1,
       "initial_sent": true,
-      "last_sent_at": "2026-11-12T01:00:44.746839+03:30",
+      "last_sent_at": "2026-11-12T01:15:56.392668+03:30",
       "snooze_until": null,
       "snoozes": 0
     }
