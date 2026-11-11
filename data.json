@@ -1,20 +1,30 @@
 {
-  "intake_log": [],
-  "last_update_id": 811970757,
+  "intake_log": [
+    {
+      "at": "2026-11-12T02:09:11.209990+03:30",
+      "chat_id": 1221862634,
+      "day": "2026-11-12",
+      "emoji": "💊",
+      "name": "آموکسی",
+      "reminder_id": 1,
+      "slot": "2026-11-12T01:00"
+    }
+  ],
+  "last_update_id": 811970758,
   "reminders": [
     {
       "chat_id": 1221862634,
       "emoji": "💊",
       "every_hours": 8,
       "id": 1,
-      "last_taken_at": "2026-11-11T01:00:00+03:30",
+      "last_taken_at": "2026-11-12T02:09:11.209990+03:30",
       "name": "آموکسی",
-      "time": "01:00"
+      "time": "02:09"
     }
   ],
   "sent_log": {
     "1:2026-11-12T01:00": {
-      "acked": false,
+      "acked": true,
       "followups": 1,
       "initial_sent": true,
       "last_sent_at": "2026-11-12T01:15:56.392668+03:30",
