@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.log
+.idea/
+.vscode/
+data.json.tmp
+
+# data.json نادیده گرفته نمی‌شود. حافظهٔ ربات است و باید داخل ریپو بماند.
