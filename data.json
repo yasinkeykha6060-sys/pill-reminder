@@ -1,16 +1,6 @@
 {
   "intake_log": [],
-  "last_update_id": 811970727,
-  "reminders": [
-    {
-      "chat_id": 7913503227,
-      "emoji": "💊",
-      "every_hours": 8,
-      "id": 1,
-      "last_taken_at": "2026-11-11T19:30:00+03:30",
-      "name": "آموکسی کلاو",
-      "time": "19:30"
-    }
-  ],
+  "last_update_id": 811970728,
+  "reminders": [],
   "sent_log": {}
 }
