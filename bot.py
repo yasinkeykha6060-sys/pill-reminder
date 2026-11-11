@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -92,13 +94,16 @@ TAKEN_LINES = [
 ADD_RE = re.compile(
     r"^([0-9۰-۹٠-٩]{1,2})\s*[:：]\s*([0-9۰-۹٠-٩]{2})\s+(.+)$"
 )
+INTERVAL_RE = re.compile(
+    r"^([0-9۰-۹٠-٩]{1,2})\s*[:：]\s*([0-9۰-۹٠-٩]{2})\s+([0-9۰-۹٠-٩]{1,2})\s+(.+)$"
+)
 DEL_RE = re.compile(r"^([0-9۰-۹٠-٩]+)$")
 TOKEN_LIKE_RE = re.compile(r"\d{6,}\s*:\s*[A-Za-z0-9_-]{20,}")
 GREETINGS = {"سلام", "سلم", "درود", "هی", "hello", "hi"}
 
 COMMANDS = [
     {"command": "start", "description": "خوش‌آمد و راهنما"},
-    {"command": "add", "description": "یادآور هر روز: /add 08:00 اسم کوتاه"},
+    {"command": "add", "description": "آخرین ساعت و فاصله: /add 19:30 8 اسم"},
     {"command": "list", "description": "فهرست یادآورها"},
     {"command": "del", "description": "حذف با شماره: /del 1"},
     {"command": "history", "description": "دفعاتی که خوردم زده شده"},
@@ -262,9 +267,9 @@ def prune(data: dict, today: date) -> None:
     keep_intake = today - timedelta(days=60)
     sent_clean = {}
     for key, entry in data["sent_log"].items():
-        day_text = str(key).split(":")[-1]
+        slot_text = str(key).split(":", 1)[-1]
         try:
-            day = date.fromisoformat(day_text)
+            day = date.fromisoformat(slot_text[:10])
         except ValueError:
             continue
         if day >= keep_sent and isinstance(entry, dict):
@@ -341,8 +346,8 @@ def entry_key(reminder_id: int, day: date) -> str:
     return f"{reminder_id}:{day.isoformat()}"
 
 
-def ensure_entry(data: dict, reminder_id: int, day: date) -> dict:
-    key = entry_key(reminder_id, day)
+def ensure_slot(data: dict, reminder_id: int, slot: str) -> dict:
+    key = f"{reminder_id}:{slot}"
     entry = data["sent_log"].get(key)
     if not isinstance(entry, dict):
         entry = blank_entry()
@@ -350,14 +355,81 @@ def ensure_entry(data: dict, reminder_id: int, day: date) -> dict:
     return entry
 
 
-def keyboard(reminder_id: int, day: date) -> dict:
-    stamp = day.strftime("%Y%m%d")
+def ensure_entry(data: dict, reminder_id: int, day: date) -> dict:
+    return ensure_slot(data, reminder_id, day.isoformat())
+
+
+def slot_stamp(slot: date | str) -> str:
+    if isinstance(slot, date):
+        return slot.strftime("%Y%m%d")
+    return str(slot).replace("-", "").replace("T", "").replace(":", "")
+
+
+def keyboard(reminder_id: int, slot: date | str) -> dict:
+    stamp = slot_stamp(slot)
     return {
         "inline_keyboard": [[
             {"text": "خوردم ✅", "callback_data": f"t:{reminder_id}:{stamp}"},
             {"text": "۱۰ دقیقه بعد ⏰", "callback_data": f"z:{reminder_id}:{stamp}"},
         ]]
     }
+
+
+def interval_hours(reminder: dict) -> int | None:
+    value = reminder.get("every_hours")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if 1 <= value <= 24:
+        return value
+    return None
+
+
+def anchor_dt(reminder: dict) -> datetime | None:
+    raw = reminder.get("last_taken_at")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return parse_dt(raw)
+    except ValueError:
+        return None
+
+
+def upcoming_slot(reminder: dict, now: datetime) -> datetime | None:
+    hours = interval_hours(reminder)
+    anchor = anchor_dt(reminder)
+    if hours is None or anchor is None:
+        return None
+    step = timedelta(hours=hours)
+    slot = anchor + step
+    for _ in range(60):
+        if slot + WINDOW >= now:
+            return slot
+        slot += step
+    return slot
+
+
+def slot_label(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M")
+
+
+def describe_reminder(reminder: dict, now: datetime) -> str:
+    name = f"{reminder['emoji']} {html_escape(reminder['name'])}"
+    hours = interval_hours(reminder)
+    anchor = anchor_dt(reminder)
+    if hours and anchor:
+        nxt = upcoming_slot(reminder, now)
+        last = fa_digits(anchor.strftime("%H:%M"))
+        if nxt is None:
+            nxt_text = "—"
+        else:
+            nxt_text = fa_digits(nxt.strftime("%H:%M"))
+            if nxt.date() != now.date():
+                nxt_text += f" {fa_day(nxt.date())}"
+        return (
+            f"{name}\n"
+            f"هر {fa_digits(hours)} ساعت — آخرین بار {last} — نوبت بعدی {nxt_text}"
+        )
+    return f"{name} — هر روز ساعت {fa_clock(reminder['time'])}"
 
 
 def reminder_message(reminder: dict, kind: str, now: datetime, followup_no: int = 1) -> str:
@@ -374,8 +446,7 @@ def reminder_message(reminder: dict, kind: str, now: datetime, followup_no: int 
         love = FOLLOWUP_LINES[0 if followup_no <= 1 else 1]
     return (
         f"{title}\n"
-        f"{reminder['emoji']} {html_escape(reminder['name'])}"
-        f" — ساعت {fa_clock(reminder['time'])}\n\n"
+        f"{describe_reminder(reminder, now)}\n\n"
         f"{html_escape(love)}\n\n"
         "دکمهٔ «خوردم» را بزن تا خیالم راحت شود."
     )
@@ -415,17 +486,18 @@ def help_text() -> str:
         "سلام نیایش جانم 💛",
         "من اینجام که وقت دارو یادت نرود. یاسین خیلی خیلی دوستت داره و می‌خواهد زودتر خوب شوی.",
         "",
-        "هر یادآور، هر روز سر همان ساعت تکرار می‌شود.",
-        "جواب من ممکن است چند دقیقه طول بکشد؛ من همیشه روشن نیستم و هر چند دقیقه یک بار بیدار می‌شوم.",
+        "برای دارویی که هر چند ساعت یک بار است، ساعت آخرین مصرف و فاصله را بفرست.",
+        "من نوبت بعدی را حساب می‌کنم و سر همان وقت یادت می‌اندازم.",
         "",
         "دستورها:",
+        "/add 19:30 8 آموکسی",
+        "یعنی آخرین بار ۱۹:۳۰ خورده و هر ۸ ساعت دوباره.",
         "/add 08:00 قرص صبح",
+        "یعنی هر روز همان ساعت.",
         "/list",
-        "/del 1",
+        "فهرست، با دکمهٔ پاک کردن",
         "/history",
         "/test",
-        "",
-        "عدد فارسی هم قبول است: /add ۰۸:۳۰ ویتامین",
         "",
         "وقتی یادآوری برسد دو دکمه می‌آید: «خوردم ✅» و «۱۰ دقیقه بعد ⏰».",
         "اگر تا ۱۵ دقیقه «خوردم» را نزنی، آرام دوباره می‌گویم؛ حداکثر دو بار.",
@@ -445,13 +517,13 @@ def help_text() -> str:
 def usage_text() -> str:
     return (
         "این را درست نفهمیدم نیایش جانم.\n"
-        "یکی از این‌ها را بفرست:\n"
+        "برای داروی ساعتی این را بفرست:\n"
+        "/add 19:30 8 آموکسی\n"
+        "اول ساعت آخرین مصرف، بعد هر چند ساعت، بعد اسم.\n"
+        "اگر هر روز یک ساعت ثابت است:\n"
         "/add 08:00 قرص صبح\n"
-        "/list\n"
-        "/del 1\n"
-        "/history\n"
-        "/test\n\n"
-        "عدد فارسی هم اشکالی ندارد. یاسین خیلی دوستت داره."
+        "/list دارو را با دکمه پاک می‌کند.\n"
+        "عدد فارسی هم اشکالی ندارد."
     )
 
 
@@ -520,14 +592,14 @@ def handle_message(data: dict, chat_id: int, text: str, now: datetime) -> dict:
                     "برای راهنما /start را بزن."
                 )
             }
-        if ADD_RE.match(text.strip()):
+        if INTERVAL_RE.match(text.strip()) or ADD_RE.match(text.strip()):
             command, rest = "add", text.strip()
         else:
             return {"text": usage_text()}
     if command == "add":
         return add_reminder(data, chat_id, rest, now)
     if command == "list":
-        return {"text": list_text(data, chat_id)}
+        return list_reply(data, chat_id, now)
     if command == "del":
         return delete_reminder(data, chat_id, rest)
     if command == "history":
@@ -545,14 +617,42 @@ def handle_message(data: dict, chat_id: int, text: str, now: datetime) -> dict:
     return {"text": usage_text()}
 
 
+def reject_name(raw_name: str) -> str | None:
+    if TOKEN_LIKE_RE.search(raw_name):
+        return (
+            "این نوشته را ذخیره نمی‌کنم نیایش جانم.\n"
+            "فقط ساعت و یک اسم کوتاه بفرست. مثلاً:\n"
+            "/add 19:30 8 آموکسی"
+        )
+    name = clean_name(raw_name)
+    if name is None:
+        return (
+            "یک اسم کوتاه برای دارو بگذار نیایش جانم. مثلاً «آموکسی».\n"
+            "اسم خیلی طولانی را ذخیره نمی‌کنم."
+        )
+    return None
+
+
+def remembered_clock(now: datetime, hhmm: str) -> datetime:
+    candidate = scheduled_dt(now.date(), hhmm)
+    if candidate > now + timedelta(minutes=1):
+        candidate = scheduled_dt(now.date() - timedelta(days=1), hhmm)
+    return candidate
+
+
 def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
+    interval_match = INTERVAL_RE.match(rest.strip())
+    if interval_match is not None:
+        return add_interval(data, chat_id, interval_match, now)
     match = ADD_RE.match(rest.strip())
     if match is None:
         return {
             "text": (
-                "نیایش جانم، این را این‌جوری بنویس:\n"
-                "/add 08:00 قرص صبح\n\n"
-                "اول ساعت با دونقطه، بعد یک اسم کوتاه. عدد فارسی هم قبول است."
+                "نیایش جانم، یکی از این دو را بفرست:\n"
+                "/add 19:30 8 آموکسی\n"
+                "آخرین بار ۱۹:۳۰ خورده و هر ۸ ساعت یادت می‌اندازم.\n\n"
+                "/add 08:00 قرص صبح\n"
+                "هر روز همان ساعت. عدد فارسی هم قبول است."
             )
         }
     hhmm = parse_clock(match.group(1), match.group(2))
@@ -561,40 +661,32 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
             "text": (
                 "این ساعت درست نیست نیایش جانم.\n"
                 "ساعت را از ۰۰:۰۰ تا ۲۳:۵۹ بنویس. مثلاً:\n"
-                "/add 08:00 قرص صبح"
+                "/add 19:30 8 آموکسی"
             )
         }
-    raw_name = match.group(3)
-    if TOKEN_LIKE_RE.search(raw_name):
-        return {
-            "text": (
-                "این نوشته را ذخیره نمی‌کنم نیایش جانم.\n"
-                "فقط ساعت و یک اسم کوتاه بفرست. مثلاً:\n"
-                "/add 08:00 قرص صبح"
-            )
-        }
-    name = clean_name(raw_name)
-    if name is None:
-        return {
-            "text": (
-                "یک اسم کوتاه برای دارو بگذار نیایش جانم. مثلاً «قرص صبح».\n"
-                "اسم خیلی طولانی را ذخیره نمی‌کنم."
-            )
-        }
+    problem = reject_name(match.group(3))
+    if problem:
+        return {"text": problem}
+    name = clean_name(match.group(3))
+    assert name is not None
     owned = chat_reminders(data, chat_id)
     for reminder in owned:
-        if reminder["time"] == hhmm and norm_text(reminder["name"]) == norm_text(name):
+        if (
+            not interval_hours(reminder)
+            and reminder["time"] == hhmm
+            and norm_text(reminder["name"]) == norm_text(name)
+        ):
             return {
                 "text": (
                     f"این را قبلاً داری نیایش جانم.\n"
-                    f"{reminder['emoji']} {html_escape(name)} هر روز ساعت {fa_clock(hhmm)}."
+                    f"{describe_reminder(reminder, now)}"
                 )
             }
     if len(owned) >= MAX_REMINDERS:
         return {
             "text": (
                 "به سقف یادآورها رسیدیم نیایش جانم.\n"
-                "یکی را با /del بردار، بعد این را دوباره اضافه کن."
+                "/list را بزن و با دکمه یکی را پاک کن."
             )
         }
     emoji, note = match_symbol(name)
@@ -618,23 +710,97 @@ def add_reminder(data: dict, chat_id: int, rest: str, now: datetime) -> dict:
     }
 
 
-def list_text(data: dict, chat_id: int) -> str:
+def add_interval(data: dict, chat_id: int, match: re.Match[str], now: datetime) -> dict:
+    hhmm = parse_clock(match.group(1), match.group(2))
+    if hhmm is None:
+        return {
+            "text": (
+                "این ساعت درست نیست نیایش جانم.\n"
+                "مثلاً: /add 19:30 8 آموکسی"
+            )
+        }
+    try:
+        hours = int(en_digits(match.group(3)))
+    except ValueError:
+        hours = 0
+    if hours < 1 or hours > 24:
+        return {
+            "text": (
+                "فاصله را از ۱ تا ۲۴ ساعت بنویس نیایش جانم.\n"
+                "مثلاً هر ۸ ساعت: /add 19:30 8 آموکسی"
+            )
+        }
+    problem = reject_name(match.group(4))
+    if problem:
+        return {"text": problem}
+    name = clean_name(match.group(4))
+    assert name is not None
+    anchor = remembered_clock(now, hhmm)
+    owned = chat_reminders(data, chat_id)
+    for reminder in owned:
+        if norm_text(reminder["name"]) == norm_text(name) and interval_hours(reminder):
+            reminder["every_hours"] = hours
+            reminder["last_taken_at"] = anchor.isoformat()
+            reminder["time"] = hhmm
+            return {
+                "text": (
+                    "به‌روز شد نیایش جانم ✅\n\n"
+                    f"{describe_reminder(reminder, now)}\n\n"
+                    "از همین آخرین بار، هر "
+                    f"{fa_digits(hours)} ساعت یادت می‌اندازم."
+                )
+            }
+    if len(owned) >= MAX_REMINDERS:
+        return {
+            "text": (
+                "به سقف یادآورها رسیدیم نیایش جانم.\n"
+                "/list را بزن و با دکمه یکی را پاک کن."
+            )
+        }
+    emoji, note = match_symbol(name)
+    reminder = {
+        "chat_id": chat_id,
+        "emoji": emoji,
+        "every_hours": hours,
+        "id": next_reminder_id(data),
+        "last_taken_at": anchor.isoformat(),
+        "name": name,
+        "time": hhmm,
+    }
+    data["reminders"].append(reminder)
+    return {
+        "text": (
+            "ثبت شد نیایش جانم ✅\n\n"
+            f"{describe_reminder(reminder, now)}\n"
+            f"{note}.\n\n"
+            "هر بار که خوردی دکمهٔ «خوردم» را بزن تا آخرین ساعت عوض شود.\n"
+            "نیایشم، زودتر خوب شو. یاسین خیلی خیلی دوستت داره 💛"
+        )
+    }
+
+
+def list_reply(data: dict, chat_id: int, now: datetime) -> dict:
     items = chat_reminders(data, chat_id)
     if not items:
-        return (
-            "هنوز یادآوری نداری نیایش جانم.\n"
-            "این‌جوری یکی بساز:\n"
-            "/add 08:00 قرص صبح\n\n"
-            "ساعت را هر روز همان موقع می‌گویم."
-        )
-    lines = ["یادآورهای هر روزت، نیایش جانم 💛", ""]
+        return {
+            "text": (
+                "هنوز یادآوری نداری نیایش جانم.\n"
+                "مثلاً:\n"
+                "/add 19:30 8 آموکسی\n\n"
+                "ساعت، آخرین بار است. عدد بعدی، هر چند ساعت یک بار."
+            )
+        }
+    lines = ["داروهایت، نیایش جانم 💛", ""]
+    rows = []
     for index, reminder in enumerate(items, start=1):
-        lines.append(
-            f"{fa_digits(index)}. {reminder['emoji']} {html_escape(reminder['name'])}"
-            f" — هر روز ساعت {fa_clock(reminder['time'])}"
-        )
-    lines.extend(["", "حذف: /del و شماره. مثلاً /del 1", "یاسین خیلی خیلی دوستت داره."])
-    return "\n".join(lines)
+        lines.append(f"{fa_digits(index)}. {describe_reminder(reminder, now)}")
+        lines.append("")
+        rows.append([{
+            "text": f"پاک کردن {fa_digits(index)}",
+            "callback_data": f"d:{reminder['id']}",
+        }])
+    lines.append("برای پاک کردن، همان دکمهٔ زیر را بزن.")
+    return {"text": "\n".join(lines).strip(), "markup": {"inline_keyboard": rows}}
 
 
 def delete_reminder(data: dict, chat_id: int, rest: str) -> dict:
@@ -723,6 +889,9 @@ def collect_due(data: dict, now: datetime) -> list[dict]:
     for reminder in data["reminders"]:
         if not valid_reminder(reminder):
             continue
+        if interval_hours(reminder):
+            plans.extend(collect_interval(data, reminder, now))
+            continue
         snooze_plan = due_snooze(data, reminder, (yesterday, today), now)
         if snooze_plan is not None:
             plans.append(snooze_plan)
@@ -762,6 +931,56 @@ def collect_due(data: dict, now: datetime) -> list[dict]:
     return plans
 
 
+def collect_interval(data: dict, reminder: dict, now: datetime) -> list[dict]:
+    snoozed = due_slot_snooze(data, reminder, now)
+    if snoozed:
+        return snoozed
+    slot_dt = upcoming_slot(reminder, now)
+    if slot_dt is None or slot_dt > now:
+        return []
+    slot = slot_label(slot_dt)
+    entry = data["sent_log"].get(f"{reminder['id']}:{slot}")
+    if isinstance(entry, dict) and entry.get("acked"):
+        return []
+    if isinstance(entry, dict) and entry.get("snooze_until"):
+        return []
+    if not isinstance(entry, dict) or not entry.get("initial_sent"):
+        if now - slot_dt <= WINDOW:
+            return [make_plan(reminder, "initial", slot_dt.date(), 1, slot)]
+        return []
+    followups = int(entry.get("followups") or 0)
+    if followups >= MAX_FOLLOWUPS or not entry.get("last_sent_at"):
+        return []
+    due_at = parse_dt(str(entry["last_sent_at"])) + FOLLOWUP_AFTER
+    if due_at <= now <= due_at + WINDOW:
+        return [make_plan(reminder, "followup", slot_dt.date(), followups + 1, slot)]
+    if now > due_at + WINDOW:
+        entry["followups"] = MAX_FOLLOWUPS
+    return []
+
+
+def due_slot_snooze(data: dict, reminder: dict, now: datetime) -> list[dict]:
+    prefix = f"{reminder['id']}:"
+    for key, entry in data["sent_log"].items():
+        if not str(key).startswith(prefix) or not isinstance(entry, dict):
+            continue
+        if entry.get("acked") or not entry.get("snooze_until"):
+            continue
+        try:
+            snooze_at = parse_dt(str(entry["snooze_until"]))
+        except (TypeError, ValueError):
+            entry["snooze_until"] = None
+            continue
+        slot = str(key).split(":", 1)[1]
+        if now < snooze_at:
+            continue
+        if now - snooze_at <= WINDOW:
+            slot_day = date.fromisoformat(slot[:10])
+            return [make_plan(reminder, "snooze", slot_day, 1, slot)]
+        entry["snooze_until"] = None
+    return []
+
+
 def due_snooze(
     data: dict,
     reminder: dict,
@@ -787,21 +1006,29 @@ def due_snooze(
     return None
 
 
-def make_plan(reminder: dict, kind: str, day: date, followup_no: int) -> dict:
+def make_plan(
+    reminder: dict,
+    kind: str,
+    day: date,
+    followup_no: int,
+    slot: str | None = None,
+) -> dict:
+    slot_key = slot or day.isoformat()
+    when = parse_dt(slot_key) if "T" in slot_key else scheduled_dt(day, reminder["time"])
     return {
         "chat_id": reminder["chat_id"],
         "day": day.isoformat(),
         "followup_no": followup_no,
         "id": reminder["id"],
         "kind": kind,
-        "markup": keyboard(reminder["id"], day),
-        "text": reminder_message(reminder, kind, scheduled_dt(day, reminder["time"]), followup_no),
+        "markup": keyboard(reminder["id"], slot_key),
+        "slot": slot_key,
+        "text": reminder_message(reminder, kind, when, followup_no),
     }
 
 
 def mark_sent(data: dict, plan: dict, now: datetime) -> None:
-    day = date.fromisoformat(plan["day"])
-    entry = ensure_entry(data, plan["id"], day)
+    entry = ensure_slot(data, plan["id"], str(plan.get("slot") or plan["day"]))
     entry["last_sent_at"] = now.isoformat()
     if plan["kind"] == "initial":
         entry["initial_sent"] = True
@@ -812,18 +1039,27 @@ def mark_sent(data: dict, plan: dict, now: datetime) -> None:
         entry["snooze_until"] = None
 
 
-def parse_callback(raw: str) -> tuple[str, int, date] | None:
+def parse_callback(raw: str) -> tuple[str, int, str] | None:
     kind, separator, rest = raw.partition(":")
     reminder_text, separator2, day_text = rest.partition(":")
     if separator != ":" or separator2 != ":" or kind not in {"t", "z"}:
         return None
-    if not reminder_text.isdigit() or not re.fullmatch(r"\d{8}", day_text):
+    if not reminder_text.isdigit():
+        return None
+    if re.fullmatch(r"\d{8}", day_text):
+        slot = f"{day_text[0:4]}-{day_text[4:6]}-{day_text[6:8]}"
+    elif re.fullmatch(r"\d{12}", day_text):
+        slot = (
+            f"{day_text[0:4]}-{day_text[4:6]}-{day_text[6:8]}"
+            f"T{day_text[8:10]}:{day_text[10:12]}"
+        )
+    else:
         return None
     try:
-        day = datetime.strptime(day_text, "%Y%m%d").date()
+        date.fromisoformat(slot[:10])
     except ValueError:
         return None
-    return kind, int(reminder_text), day
+    return kind, int(reminder_text), slot
 
 
 def handle_callback(token: str, data: dict, callback: dict, now: datetime) -> None:
@@ -835,7 +1071,11 @@ def handle_callback(token: str, data: dict, callback: dict, now: datetime) -> No
         return
     chat_id = chat["id"]
     message_id = message.get("message_id")
-    parsed = parse_callback(str(callback.get("data") or ""))
+    raw_data = str(callback.get("data") or "")
+    if raw_data[:2] in {"d:", "y:", "x:"}:
+        handle_delete_button(token, data, chat_id, message_id, callback_id, raw_data, now)
+        return
+    parsed = parse_callback(raw_data)
     if parsed is None:
         answer_callback(token, callback_id, "این دکمه قدیمی است نیایش جانم.")
         return
@@ -859,6 +1099,60 @@ def handle_callback(token: str, data: dict, callback: dict, now: datetime) -> No
         record_taken(token, data, reminder, day, now, chat_id, message_id, callback_id)
         return
     record_snooze(token, data, reminder, day, now, chat_id, message_id, callback_id)
+
+
+def handle_delete_button(
+    token: str,
+    data: dict,
+    chat_id: int,
+    message_id: object,
+    callback_id: str,
+    raw_data: str,
+    now: datetime,
+) -> None:
+    action, _, reminder_text = raw_data.partition(":")
+    if not reminder_text.isdigit():
+        answer_callback(token, callback_id, "این دکمه قدیمی است نیایش جانم.")
+        return
+    reminder = find_reminder(data, chat_id, int(reminder_text))
+    if action == "x":
+        answer_callback(token, callback_id, "ماند")
+        current = list_reply(data, chat_id, now)
+        edit_message(token, chat_id, message_id, current["text"], current.get("markup"))
+        return
+    if reminder is None:
+        answer_callback(token, callback_id, "این یادآور دیگر نیست عزیزم.")
+        return
+    if action == "d":
+        answer_callback(token, callback_id, "اگر مطمئنی تأیید کن")
+        edit_message(
+            token,
+            chat_id,
+            message_id,
+            f"نیایش جانم، {reminder['emoji']} {html_escape(reminder['name'])} پاک شود؟",
+            {
+                "inline_keyboard": [[
+                    {"text": "بله، پاک کن", "callback_data": f"y:{reminder['id']}"},
+                    {"text": "نه", "callback_data": f"x:{reminder['id']}"},
+                ]]
+            },
+        )
+        return
+    if action == "y":
+        data["reminders"] = [
+            item
+            for item in data["reminders"]
+            if not (valid_reminder(item) and item["id"] == reminder["id"])
+        ]
+        answer_callback(token, callback_id, "پاک شد")
+        current = list_reply(data, chat_id, now)
+        edit_message(
+            token,
+            chat_id,
+            message_id,
+            "پاک شد.\n\n" + current["text"],
+            current.get("markup"),
+        )
 
 
 def handle_test_callback(
@@ -887,29 +1181,43 @@ def handle_test_callback(
     )
 
 
-def acknowledge(data: dict, reminder: dict, day: date, now: datetime, chat_id: int) -> bool:
-    day_iso = day.isoformat()
-    entry = ensure_entry(data, reminder["id"], day)
-    first_time = not already_logged(data, chat_id, reminder["id"], day_iso)
+def acknowledge(data: dict, reminder: dict, slot: str, now: datetime, chat_id: int) -> bool:
+    entry = ensure_slot(data, reminder["id"], slot)
+    first_time = not already_logged_slot(data, chat_id, reminder["id"], slot)
     entry["acked"] = True
     entry["snooze_until"] = None
     entry["initial_sent"] = True
+    if interval_hours(reminder):
+        reminder["last_taken_at"] = now.isoformat()
+        reminder["time"] = now.strftime("%H:%M")
     if first_time:
         data["intake_log"].append(
             {
                 "at": now.isoformat(),
                 "chat_id": chat_id,
-                "day": day_iso,
+                "day": slot[:10],
                 "emoji": reminder["emoji"],
                 "name": reminder["name"],
                 "reminder_id": reminder["id"],
+                "slot": slot,
             }
         )
     return first_time
 
 
-def postpone(data: dict, reminder: dict, day: date, now: datetime) -> str:
-    entry = ensure_entry(data, reminder["id"], day)
+def already_logged_slot(data: dict, chat_id: int, reminder_id: int, slot: str) -> bool:
+    for item in data["intake_log"]:
+        if not isinstance(item, dict):
+            continue
+        if item.get("chat_id") != chat_id or item.get("reminder_id") != reminder_id:
+            continue
+        if item.get("slot") == slot or (not item.get("slot") and item.get("day") == slot):
+            return True
+    return False
+
+
+def postpone(data: dict, reminder: dict, slot: str, now: datetime) -> str:
+    entry = ensure_slot(data, reminder["id"], slot)
     if entry.get("acked"):
         return "acked"
     snoozes = int(entry.get("snoozes") or 0)
@@ -926,15 +1234,15 @@ def record_taken(
     token: str,
     data: dict,
     reminder: dict,
-    day: date,
+    slot: str,
     now: datetime,
     chat_id: int,
     message_id: object,
     callback_id: str,
 ) -> None:
-    first_time = acknowledge(data, reminder, day, now, chat_id)
+    first_time = acknowledge(data, reminder, slot, now, chat_id)
     toast = "آفرین نیایش جانم، ثبت شد" if first_time else "این یکی را قبلاً ثبت کرده بودم عزیزم"
-    love = pick_line(TAKEN_LINES, reminder["id"], day.isoformat())
+    love = pick_line(TAKEN_LINES, reminder["id"], slot)
     edit_message(
         token,
         chat_id,
@@ -950,13 +1258,13 @@ def record_snooze(
     token: str,
     data: dict,
     reminder: dict,
-    day: date,
+    slot: str,
     now: datetime,
     chat_id: int,
     message_id: object,
     callback_id: str,
 ) -> None:
-    state = postpone(data, reminder, day, now)
+    state = postpone(data, reminder, slot, now)
     if state == "acked":
         answer_callback(token, callback_id, "قبلاً خوردی و ثبت شده نیایش جانم")
         return
@@ -981,10 +1289,10 @@ def record_snooze(
     answer_callback(token, callback_id, "۱۰ دقیقهٔ دیگر یادت می‌اندازم")
 
 
-def api(token: str, method: str, payload: dict) -> object:
+def api(token: str, method: str, payload: dict, timeout: int = 40) -> object:
     url = f"https://api.telegram.org/bot{token}/{method}"
     try:
-        response = requests.post(url, json=payload, timeout=40)
+        response = requests.post(url, json=payload, timeout=timeout)
     except requests.RequestException:
         raise TelegramError(method, "network", 0)
     status = response.status_code
@@ -1019,13 +1327,19 @@ def send_html(token: str, chat_id: int, text: str, reply_markup: dict | None = N
         api(token, "sendMessage", {**payload, "text": plain})
 
 
-def edit_message(token: str, chat_id: int, message_id: object, text: str) -> None:
+def edit_message(
+    token: str,
+    chat_id: int,
+    message_id: object,
+    text: str,
+    reply_markup: dict | None = None,
+) -> None:
     if not isinstance(message_id, int):
         return
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "reply_markup": {"inline_keyboard": []},
+        "reply_markup": reply_markup if reply_markup is not None else {"inline_keyboard": []},
         "text": text,
     }
     try:
@@ -1068,7 +1382,7 @@ def prepare_bot(token: str) -> None:
         print("could not refresh the command menu")
 
 
-def pull_updates(token: str, offset: int) -> list[dict]:
+def pull_updates(token: str, offset: int, timeout: int = 0) -> list[dict]:
     collected: list[dict] = []
     for _ in range(5):
         batch = api(
@@ -1077,8 +1391,9 @@ def pull_updates(token: str, offset: int) -> list[dict]:
             {
                 "allowed_updates": ["message", "callback_query"],
                 "offset": offset,
-                "timeout": 0,
+                "timeout": timeout,
             },
+            timeout=timeout + 15,
         )
         if not isinstance(batch, list) or not batch:
             break
@@ -1089,12 +1404,19 @@ def pull_updates(token: str, offset: int) -> list[dict]:
     return collected
 
 
-def process_updates(token: str, data: dict, now: datetime) -> tuple[int, str | None]:
+def process_updates(
+    token: str,
+    data: dict,
+    now: datetime,
+    poll_timeout: int = 0,
+) -> tuple[int, str | None]:
     try:
-        updates = pull_updates(token, int(data["last_update_id"]) + 1)
+        updates = pull_updates(token, int(data["last_update_id"]) + 1, poll_timeout)
     except FatalTokenError:
         raise
     except TelegramError as exc:
+        if exc.status == 409:
+            raise
         print(f"could not read updates: {exc.method} status={exc.status}")
         return 0, exc.description
 
@@ -1158,15 +1480,23 @@ def deliver_plans(token: str, data: dict, plans: list[dict], now: datetime) -> d
     return counts
 
 
-def main() -> None:
-    token = os.environ.get("BOT_TOKEN", "").strip()
-    if not token:
-        print(
-            "BOT_TOKEN is not set. Add it as a GitHub Actions secret named BOT_TOKEN.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def publish_data() -> None:
+    subprocess.run(["git", "add", "data.json"], cwd=ROOT, check=False)
+    quiet = subprocess.run(["git", "diff", "--cached", "--quiet", "data.json"], cwd=ROOT)
+    if quiet.returncode == 0:
+        return
+    committed = subprocess.run(
+        ["git", "commit", "-m", "Update reminder data"],
+        cwd=ROOT,
+        check=False,
+    )
+    if committed.returncode != 0:
+        return
+    subprocess.run(["git", "pull", "--rebase", "--autostash"], cwd=ROOT, check=False)
+    subprocess.run(["git", "push"], cwd=ROOT, check=False)
 
+
+def run_once(token: str, poll_timeout: int = 0, publish: bool = False) -> int:
     data = load_data(DATA_PATH)
     original = dump_data(data)
     now = datetime.now(TZ)
@@ -1176,7 +1506,7 @@ def main() -> None:
     handled = 0
     try:
         prepare_bot(token)
-        handled, update_error = process_updates(token, data, now)
+        handled, update_error = process_updates(token, data, now, poll_timeout)
         plans = collect_due(data, now)
         counts = deliver_plans(token, data, plans, now)
     except FatalTokenError:
@@ -1186,12 +1516,19 @@ def main() -> None:
             "Generate a new token in BotFather and update the BOT_TOKEN secret.",
             file=sys.stderr,
         )
+    except TelegramError as exc:
+        if exc.status == 409:
+            print("another instance is polling; skip")
+            return 0
+        raise
 
     prune(data, now.date())
     updated = dump_data(data)
     if updated != original:
         save_data(DATA_PATH, updated)
         print("data_changed=yes")
+        if publish:
+            publish_data()
     else:
         print("data_changed=no")
     print(
@@ -1202,7 +1539,37 @@ def main() -> None:
         f"snoozes={counts['snooze']}"
     )
     if fatal or (update_error and updated == original):
+        return 1
+    return 0
+
+
+def main() -> None:
+    token = os.environ.get("BOT_TOKEN", "").strip()
+    if not token:
+        print(
+            "BOT_TOKEN is not set. Add it as a GitHub Actions secret named BOT_TOKEN.",
+            file=sys.stderr,
+        )
         sys.exit(1)
+    if "--watch" in sys.argv:
+        print("watching")
+        while True:
+            try:
+                run_once(token, poll_timeout=20, publish=True)
+            except FatalTokenError:
+                print(
+                    "BOT_TOKEN was rejected by Telegram.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            except Exception as exc:
+                text = f"{exc.__class__.__name__}: {exc}"
+                if "api.telegram.org" in text:
+                    text = exc.__class__.__name__
+                print(text, file=sys.stderr)
+                time.sleep(3)
+        return
+    sys.exit(run_once(token))
 
 
 if __name__ == "__main__":
