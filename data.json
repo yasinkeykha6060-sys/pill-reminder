@@ -33,9 +33,9 @@
     },
     "1:2026-11-12T10:09": {
       "acked": false,
-      "followups": 0,
+      "followups": 1,
       "initial_sent": true,
-      "last_sent_at": "2026-11-12T10:09:43.080209+03:30",
+      "last_sent_at": "2026-11-12T10:24:51.496859+03:30",
       "snooze_until": null,
       "snoozes": 0
     }
