@@ -87,6 +87,14 @@
       "last_sent_at": "2026-11-14T02:47:49.728821+03:30",
       "snooze_until": null,
       "snoozes": 0
+    },
+    "1:2026-11-14T10:32": {
+      "acked": false,
+      "followups": 0,
+      "initial_sent": true,
+      "last_sent_at": "2026-11-14T10:32:39.970416+03:30",
+      "snooze_until": null,
+      "snoozes": 0
     }
   }
 }
