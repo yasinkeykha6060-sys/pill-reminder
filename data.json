@@ -114,9 +114,9 @@
     },
     "1:2026-11-15T10:32": {
       "acked": false,
-      "followups": 0,
+      "followups": 1,
       "initial_sent": true,
-      "last_sent_at": "2026-11-15T10:32:51.214435+03:30",
+      "last_sent_at": "2026-11-15T10:47:59.715989+03:30",
       "snooze_until": null,
       "snoozes": 0
     }
