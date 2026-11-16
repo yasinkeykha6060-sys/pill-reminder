@@ -19,18 +19,8 @@
       "slot": "2026-11-13T02:09"
     }
   ],
-  "last_update_id": 811970765,
-  "reminders": [
-    {
-      "chat_id": 1221862634,
-      "emoji": "💊",
-      "every_hours": 8,
-      "id": 1,
-      "last_taken_at": "2026-11-13T02:32:09.814917+03:30",
-      "name": "آموکسی",
-      "time": "02:32"
-    }
-  ],
+  "last_update_id": 811970766,
+  "reminders": [],
   "sent_log": {
     "1:2026-11-12T01:00": {
       "acked": true,
